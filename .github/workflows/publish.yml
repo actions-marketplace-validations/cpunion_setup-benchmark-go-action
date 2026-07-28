@@ -1,0 +1,250 @@
+name: Publish Go benchmarks
+
+on:
+  workflow_call:
+    inputs:
+      run_id:
+        description: Workflow run containing go-benchmark-* artifacts.
+        required: true
+        type: number
+      data_repository:
+        description: Repository that stores the Pages branch. Defaults to the source repository.
+        default: ""
+        type: string
+      data_branch:
+        description: Data and Pages branch.
+        default: pages
+        type: string
+      site_base_url:
+        description: Optional Pages root URL.
+        default: ""
+        type: string
+      artifact_pattern:
+        description: Benchmark artifact pattern.
+        default: go-benchmark-*
+        type: string
+    secrets:
+      data_token:
+        description: Token with contents write access when data_repository is external.
+        required: false
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: go-benchmark-data-${{ inputs.data_repository || github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Classify source series
+        id: source
+        env:
+          CONFIGURED_DATA_REPOSITORY: ${{ inputs.data_repository }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
+        run: |
+          set -euo pipefail
+          data_repository="$CONFIGURED_DATA_REPOSITORY"
+          [[ -n "$data_repository" ]] || data_repository="$GITHUB_REPOSITORY"
+          trusted=false
+          [[ "$HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]] || trusted=true
+
+          if [[ "$RUN_EVENT" == pull_request && -n "$PR_NUMBER" ]]; then
+            kind=pull
+            id="$PR_NUMBER"
+            label="PR #$PR_NUMBER"
+          elif [[ "$RUN_EVENT" == push && "$HEAD_BRANCH" == "$DEFAULT_BRANCH" ]]; then
+            kind=main
+            id=main
+            label=Main
+          else
+            kind=branch
+            id="$(printf '%s' "$HEAD_BRANCH" | sha256sum | cut -c1-16)"
+            label="Branch $HEAD_BRANCH"
+          fi
+
+          {
+            echo "trusted=$trusted"
+            echo "kind=$kind"
+            echo "id=$id"
+            echo "label=$label"
+            echo "pr=$PR_NUMBER"
+            echo "data-repository=$data_repository"
+            if [[ "$data_repository" == "$GITHUB_REPOSITORY" ]]; then
+              echo "same-data-repository=true"
+            else
+              echo "same-data-repository=false"
+            fi
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: ${{ inputs.artifact_pattern }}
+          path: benchmark-artifacts
+          merge-multiple: false
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Require external data token
+        if: >-
+          steps.source.outputs.trusted == 'true' &&
+          steps.source.outputs.same-data-repository != 'true'
+        env:
+          DATA_TOKEN: ${{ secrets.data_token }}
+        run: |
+          if [[ -z "$DATA_TOKEN" ]]; then
+            echo "data_token is required for an external data_repository" >&2
+            exit 1
+          fi
+
+      - name: Check out trusted benchmark data
+        if: steps.source.outputs.trusted == 'true'
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ steps.source.outputs.data-repository }}
+          path: benchmark-data
+          token: >-
+            ${{ steps.source.outputs.same-data-repository == 'true' &&
+                github.token || secrets.data_token }}
+          fetch-depth: 1
+
+      - name: Check out public benchmark data for fork preview
+        if: steps.source.outputs.trusted != 'true'
+        env:
+          DATA_REPOSITORY: ${{ steps.source.outputs.data-repository }}
+        run: |
+          set -euo pipefail
+          if ! git clone --depth=1 "https://github.com/$DATA_REPOSITORY.git" benchmark-data; then
+            mkdir benchmark-data
+            git -C benchmark-data init
+            git -C benchmark-data remote add origin "https://github.com/$DATA_REPOSITORY.git"
+          fi
+
+      - name: Select data branch
+        working-directory: benchmark-data
+        env:
+          DATA_BRANCH: ${{ inputs.data_branch }}
+        run: |
+          set -euo pipefail
+          if git fetch origin "refs/heads/$DATA_BRANCH:refs/remotes/origin/$DATA_BRANCH"; then
+            git checkout -B "$DATA_BRANCH" "origin/$DATA_BRANCH"
+          else
+            git checkout --orphan "$DATA_BRANCH"
+            git rm -rf --ignore-unmatch .
+          fi
+
+      - name: Resolve Pages URL
+        id: pages
+        env:
+          CONFIGURED_URL: ${{ inputs.site_base_url }}
+          DATA_REPOSITORY: ${{ steps.source.outputs.data-repository }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$CONFIGURED_URL" ]]; then
+            url="${CONFIGURED_URL%/}"
+          else
+            owner="${DATA_REPOSITORY%%/*}"
+            repository="${DATA_REPOSITORY#*/}"
+            if [[ "$repository" == "$owner.github.io" ]]; then
+              url="https://$owner.github.io"
+            else
+              url="https://$owner.github.io/$repository"
+            fi
+          fi
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Render benchmark history
+        id: render
+        uses: cpunion/setup-benchmark-go-action/publish@main
+        with:
+          artifacts: benchmark-artifacts
+          data-directory: benchmark-data
+          series-kind: ${{ steps.source.outputs.kind }}
+          series-id: ${{ steps.source.outputs.id }}
+          series-label: ${{ steps.source.outputs.label }}
+          site-base-url: ${{ steps.pages.outputs.url }}
+          comment-path: ${{ runner.temp }}/go-benchmark-comment.md
+
+      - name: Upload rendered preview
+        uses: actions/upload-artifact@v7
+        with:
+          name: go-benchmark-preview-${{ steps.render.outputs.suite-id }}
+          path: |
+            ${{ steps.render.outputs.site-path }}
+            ${{ steps.render.outputs.comment-path }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Add report to job summary
+        env:
+          COMMENT_PATH: ${{ steps.render.outputs.comment-path }}
+        run: cat "$COMMENT_PATH" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit benchmark data
+        if: steps.source.outputs.trusted == 'true'
+        working-directory: benchmark-data
+        env:
+          DATA_BRANCH: ${{ inputs.data_branch }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "benchmarks: update ${SOURCE_SHA:0:12}"
+          git push origin "HEAD:$DATA_BRANCH"
+
+      - name: Create or update PR comment
+        if: >-
+          steps.source.outputs.trusted == 'true' &&
+          steps.source.outputs.kind == 'pull'
+        uses: actions/github-script@v8
+        env:
+          COMMENT_PATH: ${{ steps.render.outputs.comment-path }}
+          COMMENT_MARKER: ${{ steps.render.outputs.marker }}
+          PR_NUMBER: ${{ steps.source.outputs.pr }}
+        with:
+          script: |
+            const fs = require("fs");
+            const body = fs.readFileSync(process.env.COMMENT_PATH, "utf8");
+            const issue_number = Number(process.env.PR_NUMBER);
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user.type === "Bot" &&
+              comment.body.includes(process.env.COMMENT_MARKER)
+            );
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }

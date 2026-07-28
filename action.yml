@@ -1,0 +1,67 @@
+name: Record Go benchmarks
+description: Parse, validate, and upload one platform's Go benchmark output.
+
+inputs:
+  config:
+    description: Path to the benchmark grouping configuration.
+    default: .github/go-benchmark.yml
+  benchmark-file:
+    description: Path to go test -bench output.
+    required: true
+  platform-id:
+    description: Stable platform ID. Defaults to GOOS-GOARCH.
+    default: ""
+  platform-label:
+    description: Platform label. Defaults to OS, architecture, and Go version.
+    default: ""
+  retention-days:
+    description: Artifact retention in days.
+    default: "30"
+
+outputs:
+  artifact-name:
+    description: Uploaded artifact name.
+    value: ${{ steps.record.outputs.artifact-name }}
+  platform-id:
+    description: Recorded platform ID.
+    value: ${{ steps.record.outputs.platform-id }}
+  suite-id:
+    description: Benchmark suite ID.
+    value: ${{ steps.record.outputs.suite-id }}
+
+runs:
+  using: composite
+  steps:
+    - id: record
+      name: Validate Go benchmark output
+      shell: bash
+      env:
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_BENCHMARK_FILE: ${{ inputs.benchmark-file }}
+        INPUT_PLATFORM_ID: ${{ inputs.platform-id }}
+        INPUT_PLATFORM_LABEL: ${{ inputs.platform-label }}
+      run: |
+        set -euo pipefail
+        config="$INPUT_CONFIG"
+        benchmark_file="$INPUT_BENCHMARK_FILE"
+        [[ "$config" = /* ]] || config="$GITHUB_WORKSPACE/$config"
+        [[ "$benchmark_file" = /* ]] || benchmark_file="$GITHUB_WORKSPACE/$benchmark_file"
+
+        args=(
+          record
+          --config "$config"
+          --input "$benchmark_file"
+        )
+        [[ -z "$INPUT_PLATFORM_ID" ]] || args+=(--platform-id "$INPUT_PLATFORM_ID")
+        [[ -z "$INPUT_PLATFORM_LABEL" ]] || args+=(--platform-label "$INPUT_PLATFORM_LABEL")
+
+        cd "$GITHUB_ACTION_PATH"
+        go run -mod=vendor ./cmd/setup-benchmark-go "${args[@]}"
+
+    - name: Upload Go benchmark artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.record.outputs.artifact-name }}
+        path: ${{ steps.record.outputs.artifact-path }}
+        if-no-files-found: error
+        retention-days: ${{ inputs.retention-days }}

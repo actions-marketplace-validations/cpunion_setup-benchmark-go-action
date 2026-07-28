@@ -1,0 +1,75 @@
+name: Render Go benchmark history
+description: Aggregate validated platform artifacts and render history and a PR report.
+
+inputs:
+  artifacts:
+    description: Directory containing downloaded benchmark artifacts.
+    required: true
+  data-directory:
+    description: Checked-out benchmark data branch.
+    required: true
+  series-kind:
+    description: main, branch, or pull.
+    required: true
+  series-id:
+    description: Stable series identifier.
+    required: true
+  series-label:
+    description: Series display label.
+    required: true
+  site-base-url:
+    description: GitHub Pages root URL.
+    default: ""
+  comment-path:
+    description: Output path for the generated Markdown report.
+    required: true
+
+outputs:
+  comment-path:
+    description: Generated Markdown report.
+    value: ${{ steps.render.outputs.comment-path }}
+  marker:
+    description: Stable marker used to update one PR comment.
+    value: ${{ steps.render.outputs.marker }}
+  site-path:
+    description: Generated site directory.
+    value: ${{ steps.render.outputs.site-path }}
+  site-url:
+    description: URL for the selected benchmark series.
+    value: ${{ steps.render.outputs.site-url }}
+  suite-id:
+    description: Benchmark suite ID.
+    value: ${{ steps.render.outputs.suite-id }}
+
+runs:
+  using: composite
+  steps:
+    - id: render
+      name: Aggregate and render benchmarks
+      shell: bash
+      env:
+        INPUT_ARTIFACTS: ${{ inputs.artifacts }}
+        INPUT_DATA_DIRECTORY: ${{ inputs.data-directory }}
+        INPUT_SERIES_KIND: ${{ inputs.series-kind }}
+        INPUT_SERIES_ID: ${{ inputs.series-id }}
+        INPUT_SERIES_LABEL: ${{ inputs.series-label }}
+        INPUT_SITE_BASE_URL: ${{ inputs.site-base-url }}
+        INPUT_COMMENT_PATH: ${{ inputs.comment-path }}
+      run: |
+        set -euo pipefail
+        artifacts="$INPUT_ARTIFACTS"
+        data_directory="$INPUT_DATA_DIRECTORY"
+        comment_path="$INPUT_COMMENT_PATH"
+        [[ "$artifacts" = /* ]] || artifacts="$GITHUB_WORKSPACE/$artifacts"
+        [[ "$data_directory" = /* ]] || data_directory="$GITHUB_WORKSPACE/$data_directory"
+        [[ "$comment_path" = /* ]] || comment_path="$GITHUB_WORKSPACE/$comment_path"
+
+        cd "$GITHUB_ACTION_PATH/.."
+        go run -mod=vendor ./cmd/setup-benchmark-go render \
+          --artifacts "$artifacts" \
+          --data-dir "$data_directory" \
+          --series-kind "$INPUT_SERIES_KIND" \
+          --series-id "$INPUT_SERIES_ID" \
+          --series-label "$INPUT_SERIES_LABEL" \
+          --site-base-url "$INPUT_SITE_BASE_URL" \
+          --comment "$comment_path"

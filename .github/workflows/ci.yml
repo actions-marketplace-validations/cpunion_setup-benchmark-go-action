@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Verify generated files
+        run: |
+          go mod tidy
+          go mod vendor
+          git diff --exit-code
+      - name: Test
+        env:
+          GOMAXPROCS: "2"
+        run: go test -p=1 -race -coverprofile=coverage.out ./...
+      - name: Vet
+        env:
+          GOMAXPROCS: "2"
+        run: go vet ./...
