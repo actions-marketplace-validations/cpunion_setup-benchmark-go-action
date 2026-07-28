@@ -11,26 +11,27 @@ The usual configuration is only an ID and a few regular expressions:
 ```yaml
 id: my-project
 groups:
-  core: '^BenchmarkCore.*$'
-  runtime: '^Benchmark(Runtime|Scheduler).*$'
+  core: '^Core.*$'
+  runtime: '^(Runtime|Scheduler).*$'
 ```
 
 Every included benchmark must match at most one group. New, unmatched
 benchmarks are kept in `Other`, so adding a benchmark does not require a
 configuration change. Patterns use Go's RE2 regular expression syntax and are
-matched against both `BenchmarkName` and `package/path::BenchmarkName`.
+matched against the short name (`CoreRead`), full name (`BenchmarkCoreRead`),
+and package-qualified name.
 
 `include` and `exclude` accept either one regular expression or a list:
 
 ```yaml
 id: my-project
-exclude: '^BenchmarkExperimental'
+exclude: '^Experimental'
 groups:
-  core: '^BenchmarkCore.*$'
+  core: '^Core.*$'
   storage:
     title: Storage
     match:
-      - '^Benchmark(File|Database)'
+      - '^(File|Database)'
 ```
 
 ## Record

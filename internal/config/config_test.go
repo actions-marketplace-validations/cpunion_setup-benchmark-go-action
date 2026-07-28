@@ -11,7 +11,7 @@ func TestLoadShorthandGroups(t *testing.T) {
 	cfg := loadTestConfig(t, `
 id: sample
 groups:
-  core: '^BenchmarkCore'
+  core: '^Core'
   storage:
     title: Local storage
     match:
@@ -32,6 +32,9 @@ exclude: '^BenchmarkCoreSlow$'
 	}
 	if group, err := cfg.GroupFor("BenchmarkFuture", "BenchmarkFuture"); err != nil || group != "other" {
 		t.Fatalf("future GroupFor = %q, %v", group, err)
+	}
+	if group, err := cfg.GroupFor("BenchmarkCoreFast", "example.com/project::BenchmarkCoreFast"); err != nil || group != "core" {
+		t.Fatalf("short GroupFor = %q, %v", group, err)
 	}
 }
 

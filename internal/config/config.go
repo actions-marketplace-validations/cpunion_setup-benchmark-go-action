@@ -201,8 +201,11 @@ func title(id string) string {
 }
 
 func matches(patterns []*regexp.Regexp, name, key string) bool {
+	shortName := strings.TrimPrefix(name, "Benchmark")
+	shortKey := strings.Replace(key, "::Benchmark", "::", 1)
 	for _, pattern := range patterns {
-		if pattern.MatchString(name) || pattern.MatchString(key) {
+		if pattern.MatchString(name) || pattern.MatchString(shortName) ||
+			pattern.MatchString(key) || pattern.MatchString(shortKey) {
 			return true
 		}
 	}
