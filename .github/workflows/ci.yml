@@ -13,20 +13,52 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-node@v6
         with:
-          go-version-file: go.mod
-          cache: true
-      - name: Verify generated files
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - name: Check source
+        run: npm run check
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev
+      - name: Verify bundled action
         run: |
-          go mod tidy
-          go mod vendor
-          git diff --exit-code
-      - name: Test
+          npm run build
+          git diff --exit-code -- dist publish/dist
+      - name: Record integration fixture
+        id: record
+        uses: ./
+        with:
+          config: testdata/action/benchmark.yml
+          benchmark-file: testdata/action/benchmark.txt
+          retention-days: 1
+      - name: Download integration artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: ${{ steps.record.outputs.artifact-name }}
+          path: ${{ runner.temp }}/benchmark-artifacts
+      - name: Render integration fixture
+        id: render
+        uses: ./publish
+        with:
+          artifacts: ${{ runner.temp }}/benchmark-artifacts
+          data-directory: ${{ runner.temp }}/benchmark-data
+          series-kind: pull
+          series-id: "1"
+          series-label: "PR #1"
+          additional-series-kind: branch
+          additional-series-id: feature
+          additional-series-label: Branch feature
+          site-base-url: https://example.github.io/project
+          comment-path: ${{ runner.temp }}/benchmark-comment.md
+      - name: Verify rendered fixture
         env:
-          GOMAXPROCS: "2"
-        run: go test -p=1 -race -coverprofile=coverage.out ./...
-      - name: Vet
-        env:
-          GOMAXPROCS: "2"
-        run: go vet ./...
+          COMMENT_PATH: ${{ steps.render.outputs.comment-path }}
+          SITE_PATH: ${{ steps.render.outputs.site-path }}
+        run: |
+          test -s "$COMMENT_PATH"
+          test -s "$SITE_PATH/index.html"
+          test -s "$SITE_PATH/series/pull/1/history.json"
+          test -s "$SITE_PATH/series/branch/feature/history.json"
