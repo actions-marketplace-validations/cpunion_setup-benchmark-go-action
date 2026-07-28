@@ -49,6 +49,9 @@ func TestRecordAndRender(t *testing.T) {
 		"--series-kind", "pull",
 		"--series-id", "1",
 		"--series-label", "PR #1",
+		"--additional-series-kind", "branch",
+		"--additional-series-id", "feature",
+		"--additional-series-label", "Branch feature",
 		"--site-base-url", "https://owner.github.io/project",
 		"--comment", commentPath,
 	}); err != nil {
@@ -60,6 +63,9 @@ func TestRecordAndRender(t *testing.T) {
 	}
 	if !strings.Contains(string(comment), "new") || !strings.Contains(string(comment), "pull%2F1") {
 		t.Fatalf("rendered comment:\n%s", comment)
+	}
+	if _, err := os.Stat(filepath.Join(dataPath, "go-benchmarks", "sample", "series", "branch", "feature", "history.json")); err != nil {
+		t.Fatalf("additional branch series: %v", err)
 	}
 }
 

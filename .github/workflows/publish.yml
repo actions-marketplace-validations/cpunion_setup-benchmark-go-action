@@ -72,6 +72,7 @@ jobs:
             id="$(printf '%s' "$HEAD_BRANCH" | sha256sum | cut -c1-16)"
             label="Branch $HEAD_BRANCH"
           fi
+          branch_id="$(printf '%s' "$HEAD_BRANCH" | sha256sum | cut -c1-16)"
 
           {
             echo "trusted=$trusted"
@@ -79,6 +80,11 @@ jobs:
             echo "id=$id"
             echo "label=$label"
             echo "pr=$PR_NUMBER"
+            if [[ "$kind" == pull ]]; then
+              echo "additional-kind=branch"
+              echo "additional-id=$branch_id"
+              echo "additional-label=Branch $HEAD_BRANCH"
+            fi
             echo "data-repository=$data_repository"
             if [[ "$data_repository" == "$GITHUB_REPOSITORY" ]]; then
               echo "same-data-repository=true"
@@ -174,6 +180,9 @@ jobs:
           series-kind: ${{ steps.source.outputs.kind }}
           series-id: ${{ steps.source.outputs.id }}
           series-label: ${{ steps.source.outputs.label }}
+          additional-series-kind: ${{ steps.source.outputs.additional-kind }}
+          additional-series-id: ${{ steps.source.outputs.additional-id }}
+          additional-series-label: ${{ steps.source.outputs.additional-label }}
           site-base-url: ${{ steps.pages.outputs.url }}
           comment-path: ${{ runner.temp }}/go-benchmark-comment.md
 

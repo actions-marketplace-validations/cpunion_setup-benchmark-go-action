@@ -17,6 +17,15 @@ inputs:
   series-label:
     description: Series display label.
     required: true
+  additional-series-kind:
+    description: Optional second series kind for the same benchmark result.
+    default: ""
+  additional-series-id:
+    description: Optional second series identifier.
+    default: ""
+  additional-series-label:
+    description: Optional second series display label.
+    default: ""
   site-base-url:
     description: GitHub Pages root URL.
     default: ""
@@ -53,6 +62,9 @@ runs:
         INPUT_SERIES_KIND: ${{ inputs.series-kind }}
         INPUT_SERIES_ID: ${{ inputs.series-id }}
         INPUT_SERIES_LABEL: ${{ inputs.series-label }}
+        INPUT_ADDITIONAL_SERIES_KIND: ${{ inputs.additional-series-kind }}
+        INPUT_ADDITIONAL_SERIES_ID: ${{ inputs.additional-series-id }}
+        INPUT_ADDITIONAL_SERIES_LABEL: ${{ inputs.additional-series-label }}
         INPUT_SITE_BASE_URL: ${{ inputs.site-base-url }}
         INPUT_COMMENT_PATH: ${{ inputs.comment-path }}
       run: |
@@ -64,12 +76,23 @@ runs:
         [[ "$data_directory" = /* ]] || data_directory="$GITHUB_WORKSPACE/$data_directory"
         [[ "$comment_path" = /* ]] || comment_path="$GITHUB_WORKSPACE/$comment_path"
 
-        cd "$GITHUB_ACTION_PATH/.."
-        go run -mod=vendor ./cmd/setup-benchmark-go render \
-          --artifacts "$artifacts" \
-          --data-dir "$data_directory" \
-          --series-kind "$INPUT_SERIES_KIND" \
-          --series-id "$INPUT_SERIES_ID" \
-          --series-label "$INPUT_SERIES_LABEL" \
-          --site-base-url "$INPUT_SITE_BASE_URL" \
+        args=(
+          render
+          --artifacts "$artifacts"
+          --data-dir "$data_directory"
+          --series-kind "$INPUT_SERIES_KIND"
+          --series-id "$INPUT_SERIES_ID"
+          --series-label "$INPUT_SERIES_LABEL"
+          --site-base-url "$INPUT_SITE_BASE_URL"
           --comment "$comment_path"
+        )
+        if [[ -n "$INPUT_ADDITIONAL_SERIES_KIND" ]]; then
+          args+=(
+            --additional-series-kind "$INPUT_ADDITIONAL_SERIES_KIND"
+            --additional-series-id "$INPUT_ADDITIONAL_SERIES_ID"
+            --additional-series-label "$INPUT_ADDITIONAL_SERIES_LABEL"
+          )
+        fi
+
+        cd "$GITHUB_ACTION_PATH/.."
+        go run -mod=vendor ./cmd/setup-benchmark-go "${args[@]}"

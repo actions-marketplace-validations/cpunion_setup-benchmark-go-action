@@ -145,14 +145,17 @@ func runRender(args []string) error {
 	flags := flag.NewFlagSet("render", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var (
-		artifacts    = flags.String("artifacts", "", "downloaded artifact directory")
-		dataDir      = flags.String("data-dir", "", "benchmark data branch directory")
-		seriesKind   = flags.String("series-kind", "", "main, branch, or pull")
-		seriesID     = flags.String("series-id", "", "stable series identifier")
-		seriesLabel  = flags.String("series-label", "", "series display label")
-		siteBaseURL  = flags.String("site-base-url", "", "GitHub Pages root URL")
-		commentPath  = flags.String("comment", "", "generated comment path")
-		githubOutput = flags.String("github-output", os.Getenv("GITHUB_OUTPUT"), "GitHub output file")
+		artifacts       = flags.String("artifacts", "", "downloaded artifact directory")
+		dataDir         = flags.String("data-dir", "", "benchmark data branch directory")
+		seriesKind      = flags.String("series-kind", "", "main, branch, or pull")
+		seriesID        = flags.String("series-id", "", "stable series identifier")
+		seriesLabel     = flags.String("series-label", "", "series display label")
+		additionalKind  = flags.String("additional-series-kind", "", "optional additional series kind")
+		additionalID    = flags.String("additional-series-id", "", "optional additional series identifier")
+		additionalLabel = flags.String("additional-series-label", "", "optional additional series label")
+		siteBaseURL     = flags.String("site-base-url", "", "GitHub Pages root URL")
+		commentPath     = flags.String("comment", "", "generated comment path")
+		githubOutput    = flags.String("github-output", os.Getenv("GITHUB_OUTPUT"), "GitHub output file")
 	)
 	if err := flags.Parse(args); err != nil {
 		return err
@@ -171,6 +174,18 @@ func runRender(args []string) error {
 	}, results)
 	if err != nil {
 		return err
+	}
+	if *additionalKind != "" || *additionalID != "" || *additionalLabel != "" {
+		if *additionalKind == "" || *additionalID == "" || *additionalLabel == "" {
+			return errors.New("additional series kind, id, and label must be provided together")
+		}
+		if _, err := store.Update(*dataDir, cfg, store.SeriesSpec{
+			Kind:  *additionalKind,
+			ID:    *additionalID,
+			Label: *additionalLabel,
+		}, results); err != nil {
+			return err
+		}
 	}
 	if *commentPath == "" {
 		*commentPath = filepath.Join(*dataDir, ".go-benchmark-comment.md")
